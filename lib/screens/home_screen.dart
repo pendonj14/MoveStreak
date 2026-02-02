@@ -1,11 +1,9 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:movestreak/providers/auth_provider.dart';
 import 'package:movestreak/providers/activity_provider.dart';
 import 'package:movestreak/providers/quote_provider.dart';
-import 'package:movestreak/screens/log_activity_screen.dart';
 import 'package:movestreak/screens/history_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -18,7 +16,10 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen>
     with SingleTickerProviderStateMixin {
   late AnimationController _animationController;
-  late Animation<double> _progressAnimation;  String? _selectedActivity;
+  late Animation<double> _progressAnimation;
+  late Animation<double> _pulseAnimation;
+  String? _selectedActivity;
+
   final List<String> _activitySuggestions = [
     'Walk',
     'Jog',
@@ -31,32 +32,53 @@ class _HomeScreenState extends State<HomeScreen>
   void initState() {
     super.initState();
 
-    // 1. Initialize the controller first
+    // 1. Controller first
     _animationController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1500),
+      duration: const Duration(milliseconds: 1800),
     );
 
-    // 2. Initialize the animation variable second
+    // 2. Progress animation second
     _progressAnimation = CurvedAnimation(
       parent: _animationController,
       curve: Curves.easeOutQuart,
     );
 
-    // 3. ONLY THEN call data loading/start animation
-    _loadData();
+    // 3. Pulse animation third (Essential order!)
+    _pulseAnimation =
+        TweenSequence<double>([
+          TweenSequenceItem(
+            tween: Tween<double>(begin: 1.0, end: 1.1),
+            weight: 50,
+          ),
+          TweenSequenceItem(
+            tween: Tween<double>(begin: 1.1, end: 1.0),
+            weight: 50,
+          ),
+        ]).animate(
+          CurvedAnimation(
+            parent: _animationController,
+            curve: const Interval(0.8, 1.0, curve: Curves.easeInOut),
+          ),
+        );
+
+    // 4. Data last
+    _loadData(isInitial: true);
   }
 
-  void _loadData() {
+  Future<void> _loadData({bool isInitial = false}) async {
     final authProvider = context.read<AuthProvider>();
     if (authProvider.user != null) {
-      context.read<ActivityProvider>().loadActivitiesForDate(
+      // Only load quote on initial startup to prevent layout shifts
+      if (isInitial) context.read<QuoteProvider>().loadDailyQuote();
+
+      await context.read<ActivityProvider>().loadActivitiesForDate(
         userId: authProvider.user!.id,
         date: DateTime.now(),
       );
+
+      _animationController.forward(from: 0);
     }
-    context.read<QuoteProvider>().loadDailyQuote();
-    _animationController.forward(from: 0);
   }
 
   @override
@@ -68,7 +90,7 @@ class _HomeScreenState extends State<HomeScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF020510), // Deep Dark Background
+      backgroundColor: const Color(0xFF020510),
       extendBodyBehindAppBar: true,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
@@ -78,8 +100,8 @@ class _HomeScreenState extends State<HomeScreen>
           'MoveStreak',
           style: TextStyle(
             color: Colors.white70,
-            fontSize: 16,
-            letterSpacing: 1.2,
+            fontSize: 14,
+            letterSpacing: 2,
           ),
         ),
         actions: [
@@ -100,37 +122,22 @@ class _HomeScreenState extends State<HomeScreen>
             colors: [Color(0xFF0F1730), Color(0xFF020510)],
           ),
         ),
-        child: RefreshIndicator(
-          onRefresh: () async => _loadData(),
-          child: SingleChildScrollView(
-            physics: const AlwaysScrollableScrollPhysics(),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 30),
-              child: Column(
-                children: [
-                  const SizedBox(height: 120),
-                  const Text(
-                    "Let's Get Started",
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 32,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 60),
-
-                  // CIRCULAR STREAK TRACKER
-                  _buildAnimatedStreakCircle(),
-
-                  const SizedBox(height: 60),
-                  _buildQuoteSection(),
-                  const SizedBox(height: 40),
-                  _buildActivitySuggestions(),
-                  const SizedBox(height: 40),
-                  _buildLogButton(),
-                  const SizedBox(height: 40),
-                ],
-              ),
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 30),
+            child: Column(
+              children: [
+                const SizedBox(height: 140),
+                _buildAnimatedStreakCircle(),
+                const SizedBox(height: 50),
+                _buildQuoteSection(),
+                const SizedBox(height: 50),
+                _buildActivitySuggestions(),
+                const SizedBox(height: 40),
+                _buildLogButton(),
+                const SizedBox(height: 60),
+              ],
             ),
           ),
         ),
@@ -142,47 +149,54 @@ class _HomeScreenState extends State<HomeScreen>
     return Consumer<ActivityProvider>(
       builder: (context, provider, _) {
         final streak = provider.streakInfo.currentStreak;
-        // Logic: Streak as a percentage of the month (approx 30 days)
-        final double progress = (streak / 30).clamp(0.0, 1.0);
+        final double targetProgress = (streak / 30).clamp(0.005, 1.0);
 
         return AnimatedBuilder(
-          animation: _progressAnimation,
+          animation: _animationController,
           builder: (context, child) {
-            return Stack(
-              alignment: Alignment.center,
-              children: [
-                SizedBox(
-                  width: 260,
-                  height: 260,
-                  child: CustomPaint(
-                    painter: StreakCirclePainter(
-                      progress: _progressAnimation.value * progress,
+            // Animates the number from 0 to current streak
+            final animatedNumber = (_progressAnimation.value * streak).floor();
+
+            return ScaleTransition(
+              scale: _pulseAnimation,
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  SizedBox(
+                    width: 260,
+                    height: 260,
+                    child: RepaintBoundary(
+                      child: CustomPaint(
+                        painter: StreakCirclePainter(
+                          progress: _progressAnimation.value * targetProgress,
+                        ),
+                      ),
                     ),
                   ),
-                ),
-                Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      '$streak',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 80,
-                        fontWeight: FontWeight.w600,
+                  Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        '$animatedNumber',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 80,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
-                    ),
-                    const Text(
-                      'DAY STREAK',
-                      style: TextStyle(
-                        color: Colors.white38,
-                        fontSize: 14,
-                        letterSpacing: 2,
-                        fontWeight: FontWeight.bold,
+                      const Text(
+                        'DAY STREAK',
+                        style: TextStyle(
+                          color: Colors.white38,
+                          fontSize: 12,
+                          letterSpacing: 2,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
-                    ),
-                  ],
-                ),
-              ],
+                    ],
+                  ),
+                ],
+              ),
             );
           },
         );
@@ -190,103 +204,94 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  Widget _buildQuoteSection() {
-    return Consumer<QuoteProvider>(
-      builder: (context, provider, _) {
-        if (provider.isLoading) return const SizedBox.shrink();
-        return FadeIn(
-          duration: const Duration(seconds: 1),
-          child: Text(
-            provider.quote?.content ?? "Keep moving forward.",
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              color: Colors.white60,
-              fontSize: 16,
-              fontStyle: FontStyle.italic,
-            ),
-          ),
-        );
-      },
-    );
-  }
-
   Widget _buildActivitySuggestions() {
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: _activitySuggestions
-          .map(
-            (suggestion) => ActionChip(
-              label: Text(suggestion),
-              onPressed: () {
-                setState(() {
-                  _selectedActivity = suggestion;
-                });
-              },
-              backgroundColor: _selectedActivity == suggestion
-                  ? Colors.green[600]
-                  : Colors.green[100],
-              labelStyle: TextStyle(
-                color: _selectedActivity == suggestion
-                    ? Colors.white
-                    : Colors.green[800],
+    return Column(
+      children: [
+        const Text(
+          "TODAY'S MOVEMENT",
+          style: TextStyle(
+            color: Colors.white38,
+            fontSize: 10,
+            letterSpacing: 2,
+          ),
+        ),
+        const SizedBox(height: 20),
+        Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          alignment: WrapAlignment.center,
+          children: _activitySuggestions.map((suggestion) {
+            final isSelected = _selectedActivity == suggestion;
+            return GestureDetector(
+              onTap: () => setState(() => _selectedActivity = suggestion),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 12,
+                ),
+                decoration: BoxDecoration(
+                  color: isSelected
+                      ? const Color(0xFF8DA4EE)
+                      : Colors.white.withOpacity(0.03),
+                  borderRadius: BorderRadius.circular(15),
+                  border: Border.all(
+                    color: isSelected
+                        ? Colors.white
+                        : Colors.white.withOpacity(0.1),
+                  ),
+                ),
+                child: Text(
+                  suggestion.toUpperCase(),
+                  style: TextStyle(
+                    color: isSelected ? Colors.black : Colors.white70,
+                    fontSize: 12,
+                    fontWeight: isSelected
+                        ? FontWeight.bold
+                        : FontWeight.normal,
+                    letterSpacing: 1.1,
+                  ),
+                ),
               ),
-            ),
-          )
-          .toList(),
+            );
+          }).toList(),
+        ),
+      ],
     );
   }
 
   Widget _buildLogButton() {
     return Consumer2<AuthProvider, ActivityProvider>(
-      builder: (context, authProvider, activityProvider, _) {
+      builder: (context, auth, activity, _) {
+        bool isActive = _selectedActivity != null && !activity.isLoading;
         return GestureDetector(
-          onTap: _selectedActivity == null || activityProvider.isLoading
-              ? null
-              : () async {
-                  if (authProvider.user != null) {
-                    await activityProvider.logActivity(
-                      userId: authProvider.user!.id,
-                      name: _selectedActivity!,
-                    );
-                    if (mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text(
-                            '$_selectedActivity logged! You showed up today! 🎉',
-                          ),
-                          backgroundColor: Colors.green,
-                          duration: const Duration(seconds: 2),
-                        ),
-                      );
-                      setState(() {
-                        _selectedActivity = null;
-                      });
-                      WidgetsBinding.instance.addPostFrameCallback((_) {
-                        _loadData();
-                      });
-                    }
-                  }
-                },
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 15),
+          onTap: isActive
+              ? () async {
+                  await activity.logActivity(
+                    userId: auth.user!.id,
+                    name: _selectedActivity!,
+                  );
+                  setState(() => _selectedActivity = null);
+                  _loadData(); // This refreshes streak and triggers pulse
+                }
+              : null,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 300),
+            padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 16),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(30),
-              border: Border.all(
-                color: _selectedActivity == null
-                    ? Colors.white12
-                    : Colors.white24,
-              ),
-              color: _selectedActivity == null
-                  ? Colors.white.withOpacity(0.02)
-                  : Colors.white.withOpacity(0.05),
+              gradient: isActive
+                  ? const LinearGradient(
+                      colors: [Color(0xFF8DA4EE), Color(0xFF6C7FD8)],
+                    )
+                  : null,
+              color: isActive ? null : Colors.white.withOpacity(0.05),
+              border: Border.all(color: Colors.white12),
             ),
             child: Text(
-              activityProvider.isLoading ? "LOGGING..." : "LOG ACTIVITY",
+              activity.isLoading ? "LOGGING..." : "LOG ACTIVITY",
               style: TextStyle(
-                color: _selectedActivity == null
-                    ? Colors.white38
-                    : Colors.white,
+                color: isActive ? Colors.white : Colors.white24,
                 fontWeight: FontWeight.bold,
                 letterSpacing: 1.5,
               ),
@@ -296,9 +301,24 @@ class _HomeScreenState extends State<HomeScreen>
       },
     );
   }
+
+  Widget _buildQuoteSection() {
+    return Consumer<QuoteProvider>(
+      builder: (context, provider, _) {
+        return Text(
+          provider.quote?.content ?? "Keep moving forward.",
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            color: Colors.white30,
+            fontSize: 14,
+            fontStyle: FontStyle.italic,
+          ),
+        );
+      },
+    );
+  }
 }
 
-// CUSTOM PAINTER FOR THE CIRCLE
 class StreakCirclePainter extends CustomPainter {
   final double progress;
   StreakCirclePainter({required this.progress});
@@ -307,18 +327,17 @@ class StreakCirclePainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
     final radius = size.width / 2;
-    final strokeWidth = 25.0;
+    const strokeWidth = 20.0;
 
-    // Background track (Darker circle)
     final bgPaint = Paint()
-      ..color = Colors.white10
+      ..color = Colors.white.withOpacity(0.05)
       ..style = PaintingStyle.stroke
       ..strokeWidth = strokeWidth;
 
-    // Progress track (Glowing blue/white)
     final progressPaint = Paint()
       ..shader = const SweepGradient(
-        colors: [Color(0xFF8DA4EE), Color(0xFFC0CEFA)],
+        colors: [Color(0xFF8DA4EE), Color(0xFFC0CEFA), Color(0xFF8DA4EE)],
+        stops: [0.0, 0.5, 1.0],
         startAngle: -pi / 2,
         endAngle: pi * 1.5,
       ).createShader(Rect.fromCircle(center: center, radius: radius))
@@ -326,13 +345,13 @@ class StreakCirclePainter extends CustomPainter {
       ..strokeCap = StrokeCap.round
       ..strokeWidth = strokeWidth;
 
-    // Outer dotted decoration (from your image)
-    final dotPaint = Paint()..color = Colors.white24;
+    // Outer Decoration dots
+    final dotPaint = Paint()..color = Colors.white12;
     for (int i = 0; i < 60; i++) {
       double angle = (i * 6) * (pi / 180);
       double dx = center.dx + (radius + 20) * cos(angle);
       double dy = center.dy + (radius + 20) * sin(angle);
-      canvas.drawCircle(Offset(dx, dy), 1.5, dotPaint);
+      canvas.drawCircle(Offset(dx, dy), 1.2, dotPaint);
     }
 
     canvas.drawCircle(center, radius, bgPaint);
@@ -346,39 +365,6 @@ class StreakCirclePainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
-}
-
-// SIMPLE FADE ANIMATION WIDGET
-class FadeIn extends StatefulWidget {
-  final Widget child;
-  final Duration duration;
-  const FadeIn({required this.child, required this.duration, Key? key})
-    : super(key: key);
-
-  @override
-  State<FadeIn> createState() => _FadeInState();
-}
-
-class _FadeInState extends State<FadeIn> with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-  late Animation<double> _opacity;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(vsync: this, duration: widget.duration);
-    _opacity = Tween<double>(begin: 0, end: 1).animate(_controller);
-    _controller.forward();
-  }
-
-  @override
-  Widget build(BuildContext context) =>
-      FadeTransition(opacity: _opacity, child: widget.child);
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
+  bool shouldRepaint(covariant StreakCirclePainter oldDelegate) =>
+      oldDelegate.progress != progress;
 }
