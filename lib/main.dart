@@ -7,7 +7,6 @@ import 'package:movestreak/providers/quote_provider.dart';
 import 'package:movestreak/screens/sign_in_screen.dart';
 import 'package:movestreak/screens/home_screen.dart';
 
-// TODO: Replace with your actual Supabase credentials
 const String SUPABASE_URL = 'https://dvzjuttdxywkujczrneb.supabase.co';
 const String SUPABASE_ANON_KEY =
     'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImR2emp1dHRkeHl3a3VqY3pybmViIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk5MTkyNjgsImV4cCI6MjA4NTQ5NTI2OH0.CigoBXjvxRjIxAJ_mqPZ0jsRN84X8PnU2HOXqZTm908';

@@ -100,7 +100,9 @@ class _HomeScreenState extends State<HomeScreen>
           'MoveStreak',
           style: TextStyle(
             color: Colors.white70,
-            fontSize: 14,
+            fontSize: 25,
+            fontWeight: FontWeight.w900,
+
             letterSpacing: 2,
           ),
         ),
